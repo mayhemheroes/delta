@@ -1,0 +1,5 @@
+project: delta
+target: delta
+
+cmds:
+  - cmd: /delta
