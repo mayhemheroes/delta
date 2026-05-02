@@ -28,7 +28,7 @@ jobs:
           profile: minimal
           override: true
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6.0.2
       - name: Cargo build
         env:
           MACOSX_DEPLOYMENT_TARGET: 10.7
@@ -87,7 +87,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6.0.2
       - name: Bump Homebrew formulae
         uses: dawidd6/action-homebrew-bump-formula@v3
         with:
