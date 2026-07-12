@@ -1,0 +1,32 @@
+commit 1502986e81c8e3fa27bfb5b84bac6b281a6b1edd
+Author: Dan Davison <dandavison7@gmail.com>
+Date:   Sat Mar 28 15:37:30 2026 -0400
+
+    Bump version
+
+diff --git a/Cargo.lock b/Cargo.lock
+index b7c324a..fe224ae 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -706,7 +706,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "git-delta"
+-version = "0.19.1"
++version = "0.19.2"
+ dependencies = [
+  "ansi_colours",
+  "ansi_term",
+diff --git a/Cargo.toml b/Cargo.toml
+index 3d2612f..5f77d2f 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -8,7 +8,7 @@ edition = "2018"
+ homepage = "https://github.com/dandavison/delta"
+ license = "MIT"
+ repository = "https://github.com/dandavison/delta"
+-version = "0.19.1"
++version = "0.19.2"
+ 
+ [[bin]]
+ name = "delta"

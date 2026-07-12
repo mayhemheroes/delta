@@ -1,0 +1,21 @@
+# Preserves the historical mayhemheroes/delta target `delta` (previously cmd `/delta`,
+# stdin-fuzzed, 29k+ edges / 83 defects) — same name, same stdin diff-parsing code
+# path, same build flavor (debug assertions, unsanitized — Mayhem's coverage tracer
+# measures 0 edges on ASan Rust binaries); binary lives in the commit image at
+# /mayhem/delta.
+project: delta
+target: delta
+
+cmds:
+  # delta reads a unified/git diff on stdin and renders it (stdout is not a tty, so no
+  # pager is spawned). --no-gitconfig keeps runs hermetic. Debug assertions in the
+  # binary turn arithmetic overflow / invariant violations into crashes.
+  # timeout: full-diff rendering makes per-testcase latency spiky enough that Mayhem's
+  # smoke test can mis-read the stdin loop under its default timeout; 10s is the value
+  # Mayhem's own auto-resolution validated for this target (run #12).
+  - cmd: /mayhem/delta --no-gitconfig
+    timeout: 10
+
+testsuite:
+  - https://$MAYHEM_DOMAIN/$MAYHEM_PROJECT/$MAYHEM_TARGET/testsuite.tar
+  - file://mayhem/delta/testsuite

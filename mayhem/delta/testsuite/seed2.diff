@@ -1,0 +1,200 @@
+commit f85c46ba8b913aa3208af0f3573db90286e56e18
+Author: Dan Davison <dandavison7@gmail.com>
+Date:   Sat Mar 28 16:15:30 2026 -0400
+
+    CD: handle missing libc6 dependency in cross-compiled .debs
+    
+    The arm64/armhf .debs have empty Depends fields since
+    dpkg-shlibdeps doesn't resolve cross-compiled libraries.
+    Skip the libc version check for those instead of failing.
+---
+ .github/workflows/verify-release.yml | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/.github/workflows/verify-release.yml b/.github/workflows/verify-release.yml
+index b6494c2..7550c8c 100644
+--- a/.github/workflows/verify-release.yml
++++ b/.github/workflows/verify-release.yml
+@@ -70,7 +70,11 @@ jobs:
+             arch=$(dpkg-deb -f "$deb" Architecture)
+             depends=$(dpkg-deb -f "$deb" Depends)
+             echo "${arch}: ${depends}"
+-            libc_ver=$(echo "$depends" | grep -oP 'libc6 \(>= \K[0-9.]+')
++            libc_ver=$(echo "$depends" | grep -oP 'libc6 \(>= \K[0-9.]+' || true)
++            if [ -z "$libc_ver" ]; then
++              echo "  (no libc6 dependency)"
++              continue
++            fi
+             if [ "$(printf '%s\n%s' "$libc_ver" "$max_libc" | sort -V | tail -1)" != "$max_libc" ]; then
+               echo "FAIL: ${arch} requires libc6 >= ${libc_ver}, but Debian 12 has ${max_libc}"
+               exit 1
+
+commit 4b56fde1e3a4c6778140e4ecf6ef80155a929696
+Author: Dan Davison <dandavison7@gmail.com>
+Date:   Sat Mar 28 16:01:22 2026 -0400
+
+    CD: extract release verification into reusable workflow
+    
+    Move verify-release checks into a standalone workflow that can be
+    triggered manually (workflow_dispatch) or called from the CD pipeline
+    (workflow_call). This allows re-running verification against any
+    release without a new tag push.
+---
+ .github/workflows/cd.yml             | 71 ++------------------------------
+ .github/workflows/verify-release.yml | 79 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 83 insertions(+), 67 deletions(-)
+
+diff --git a/.github/workflows/cd.yml b/.github/workflows/cd.yml
+index 5ab4201..92eba57 100644
+--- a/.github/workflows/cd.yml
++++ b/.github/workflows/cd.yml
+@@ -89,74 +89,11 @@ jobs:
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+ 
+   verify-release:
+-    name: Verify release assets
+     needs: publish
+-    runs-on: ubuntu-latest
+-    env:
+-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+-    steps:
+-      - name: Wait for release assets to be available
+-        run: sleep 10
+-
+-      - name: Check all expected assets exist
+-        run: |
+-          tag="${GITHUB_REF#refs/tags/}"
+-          expected=(
+-            "delta-${tag}-aarch64-apple-darwin.tar.gz"
+-            "delta-${tag}-aarch64-unknown-linux-gnu.tar.gz"
+-            "delta-${tag}-arm-unknown-linux-gnueabihf.tar.gz"
+-            "delta-${tag}-i686-unknown-linux-gnu.tar.gz"
+-            "delta-${tag}-x86_64-pc-windows-msvc.zip"
+-            "delta-${tag}-x86_64-unknown-linux-gnu.tar.gz"
+-            "delta-${tag}-x86_64-unknown-linux-musl.tar.gz"
+-            "git-delta_${tag}_amd64.deb"
+-            "git-delta_${tag}_arm64.deb"
+-            "git-delta_${tag}_armhf.deb"
+-            "git-delta_${tag}_i386.deb"
+-            "git-delta-musl_${tag}_amd64.deb"
+-          )
+-          actual=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | sort)
+-          missing=()
+-          for asset in "${expected[@]}"; do
+-            if ! echo "$actual" | grep -qxF "$asset"; then
+-              missing+=("$asset")
+-            fi
+-          done
+-          if [[ ${#missing[@]} -gt 0 ]]; then
+-            echo "FAIL: missing release assets:"
+-            printf '  %s\n' "${missing[@]}"
+-            exit 1
+-          fi
+-          echo "All ${#expected[@]} expected assets present."
+-
+-      - name: Download .deb assets
+-        run: |
+-          tag="${GITHUB_REF#refs/tags/}"
+-          mkdir -p /tmp/debs
+-          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir /tmp/debs --pattern "git-delta*.deb"
+-
+-      - name: Verify .deb installability on Debian 12
+-        run: |
+-          docker run --rm -v /tmp/debs:/debs debian:12 bash -c "
+-            set -e
+-            dpkg -i /debs/git-delta_*_amd64.deb
+-            delta --version
+-          "
+-
+-      - name: Verify .deb libc6 dependencies are Debian 12 compatible
+-        run: |
+-          max_libc="2.36"
+-          for deb in /tmp/debs/git-delta_*.deb; do
+-            arch=$(dpkg-deb -f "$deb" Architecture)
+-            depends=$(dpkg-deb -f "$deb" Depends)
+-            echo "${arch}: ${depends}"
+-            libc_ver=$(echo "$depends" | grep -oP 'libc6 \(>= \K[0-9.]+')
+-            if [ "$(printf '%s\n%s' "$libc_ver" "$max_libc" | sort -V | tail -1)" != "$max_libc" ]; then
+-              echo "FAIL: ${arch} requires libc6 >= ${libc_ver}, but Debian 12 has ${max_libc}"
+-              exit 1
+-            fi
+-          done
+-          echo "All .deb packages are Debian 12 compatible."
++    uses: ./.github/workflows/verify-release.yml
++    with:
++      version: ${{ github.ref_name }}
++    secrets: inherit
+ 
+   publish-to-cargo:
+     name: Publishing to Cargo
+diff --git a/.github/workflows/verify-release.yml b/.github/workflows/verify-release.yml
+new file mode 100644
+index 0000000..b6494c2
+--- /dev/null
++++ b/.github/workflows/verify-release.yml
+@@ -0,0 +1,79 @@
++name: Verify Release
++
++on:
++  workflow_dispatch:
++    inputs:
++      version:
++        description: "Release version to verify (e.g. 0.19.2)"
++        required: true
++  workflow_call:
++    inputs:
++      version:
++        required: true
++        type: string
++
++jobs:
++  verify:
++    name: Verify release assets
++    runs-on: ubuntu-latest
++    env:
++      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++    steps:
++      - name: Check all expected assets exist
++        run: |
++          tag="${{ inputs.version }}"
++          expected=(
++            "delta-${tag}-aarch64-apple-darwin.tar.gz"
++            "delta-${tag}-aarch64-unknown-linux-gnu.tar.gz"
++            "delta-${tag}-arm-unknown-linux-gnueabihf.tar.gz"
++            "delta-${tag}-i686-unknown-linux-gnu.tar.gz"
++            "delta-${tag}-x86_64-pc-windows-msvc.zip"
++            "delta-${tag}-x86_64-unknown-linux-gnu.tar.gz"
++            "delta-${tag}-x86_64-unknown-linux-musl.tar.gz"
++            "git-delta_${tag}_amd64.deb"
++            "git-delta_${tag}_arm64.deb"
++            "git-delta_${tag}_armhf.deb"
++            "git-delta_${tag}_i386.deb"
++            "git-delta-musl_${tag}_amd64.deb"
++          )
++          actual=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | sort)
++          missing=()
++          for asset in "${expected[@]}"; do
++            if ! echo "$actual" | grep -qxF "$asset"; then
++              missing+=("$asset")
++            fi
++          done
++          if [[ ${#missing[@]} -gt 0 ]]; then
++            echo "FAIL: missing release assets:"
++            printf '  %s\n' "${missing[@]}"
++            exit 1
++          fi
++          echo "All ${#expected[@]} expected assets present."
++
++      - name: Download .deb assets
++        run: |
++          mkdir -p /tmp/debs
++          gh release download "${{ inputs.version }}" --repo "$GITHUB_REPOSITORY" --dir /tmp/debs --pattern "git-delta*.deb"
++
++      - name: Verify .deb installability on Debian 12
++        run: |
++          docker run --rm -v /tmp/debs:/debs debian:12 bash -c "
++            set -e
++            dpkg -i /debs/git-delta_*_amd64.deb
++            delta --version
++          "
++

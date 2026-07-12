@@ -1,0 +1,12 @@
+commit f85c46ba8b913aa3208af0f3573db90286e56e18
+Author: Dan Davison <dandavison7@gmail.com>
+Date:   Sat Mar 28 16:15:30 2026 -0400
+
+    CD: handle missing libc6 dependency in cross-compiled .debs
+    
+    The arm64/armhf .debs have empty Depends fields since
+    dpkg-shlibdeps doesn't resolve cross-compiled libraries.
+    Skip the libc version check for those instead of failing.
+
+ .github/workflows/verify-release.yml | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
